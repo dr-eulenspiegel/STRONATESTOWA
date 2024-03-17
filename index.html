@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prezentacja z wykresami</title>
+    <style>
+        .histogram-container {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .histogram {
+            width: 400px;
+            height: 300px;
+            margin: 20px;
+        }
+
+        .histogram canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .axis text {
+            font-size: 10px;
+        }
+
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: black;
+            shape-rendering: crispEdges;
+        }
+
+        .domain {
+            display: none;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .distribution-plot svg {
+            width: 400px;
+            height: 300px;
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label for="distribution">Rozkład:</label>
+        <select id="distribution" onchange="toggleParameters()">
+            <option value="normal">Normalny</option>
+            <option value="exponential">Wykładniczy</option>
+        </select>
+        <div id="parameters">
+            <div id="normal-parameters">
+                <label for="mean">Średnia:</label>
+                <input type="number" id="mean" value="0">
+                <label for="deviation">Odchylenie standardowe:</label>
+                <input type="number" id="deviation" value="1">
+            </div>
+            <div id="exponential-parameters" style="display: none;">
+                <label for="rate">Współczynnik lambda:</label>
+                <input type="number" id="rate" value="1">
+            </div>
+        </div>
+        <label for="dataCount">Liczba danych:</label>
+        <input type="number" id="dataCount" value="100">
+        <button onclick="generateCharts()">Generuj wykresy</button>
+    </div>
+
+    <div class="histogram-container"></div>
+    <div class="distribution-plot"></div>
+
+    <div class="data-tables"></div>
+
+    <!-- Importowanie biblioteki D3.js bezpośrednio z serwera online -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <script>
+        function toggleParameters() {
+            const distribution = document.getElementById('distribution').value;
+            document.getElementById('normal-parameters').style.display = distribution === 'normal' ? 'block' : 'none';
+            document.getElementById('exponential-parameters').style.display = distribution === 'exponential' ? 'block' : 'none';
+        }
+
+        function generateRandomData(distribution, count, params) {
+            let data = [];
+
+            switch(distribution) {
+                case 'normal':
+                    for (let i = 0; i < count; i++) {
+                        data.push(d3.randomNormal(params.mean, params.deviation)());
+                    }
+                    break;
+                case 'exponential':
+                    for (let i = 0; i < count; i++) {
+                        data.push(d3.randomExponential(1 / params.rate)());
+                    }
+                    break;
+                default:
+                    console.error('Nieznany rodzaj rozkładu');
+            }
+
+            return data;
+        }
+
+        function drawHistogram(container, data) {
+            const margin = {top: 20, right: 20, bottom: 30, left: 40},
+                width = 400 - margin.left - margin.right,
+                height = 300 - margin.top - margin.bottom;
+
+            const minVal = d3.min(data);
+            const maxVal = d3.max(data);
+            const x = d3.scaleLinear()
+                .domain([minVal - 1, maxVal + 1])
+                .range([0, width]);
+
+            const histogram = d3.histogram()
+                .domain(x.domain())
+                .thresholds(x.ticks(Math.ceil(Math.sqrt(data.length))));
+
+            const bins = histogram(data);
+
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(bins, d => d.length)])
+                .range([height, 0]);
+
+            const svg = d3.select(container).append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            svg.selectAll("rect")
+                .data(bins)
+                .enter().append("rect")
+                .attr("x", 1)
+                .attr("transform", d => "translate(" + x(d.x0) + "," + y(d.length) + ")")
+                .attr("width", d => x(d.x1) - x(d.x0) - 1)
+                .attr("height", d => height - y(d.length));
+
+            // Dodaj opisy osi i wartości liczbowe na osiach
+            svg.append("g")
+                .attr("class", "axis axis--x")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format(".2f")));
+
+            svg.append("g")
+                .attr("class", "axis axis--y")
+                .call(d3.axisLeft(y).ticks(5));
+
+            // Dodaj opis osi X
+            svg.append("text")
+                .attr("transform", "translate(" + (width / 2) + " ," + (height + margin.top + 10) + ")")
+                .style("text-anchor", "middle")
+                .text("Wartość");
+
+            // Dodaj opis osi Y
+            svg.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 0 - margin.left)
+                .attr("x",0 - (height / 2))
+                .attr("dy", "1em")
+                .style("text-anchor", "middle")
+                .text("Częstość");
+        }
+
+        function generateCharts() {
+            const distribution = document.getElementById('distribution').value;
+            const dataCount = +document.getElementById('dataCount').value;
+            const parameters = getParameters();
+
+            const histogramContainer = document.querySelector('.histogram-container');
+            histogramContainer.innerHTML = '';
+
+            const distributionPlotContainer = document.querySelector('.distribution-plot');
+            distributionPlotContainer.innerHTML = '';
+
+            const dataTables = document.querySelector('.data-tables');
+            dataTables.innerHTML = '';
+
+            const distributions = [distribution];
+
+            distributions.forEach(distribution => {
+                const data = generateRandomData(distribution, dataCount, parameters);
+                const container = document.createElement('div');
+                container.classList.add('histogram');
+                histogramContainer.appendChild(container);
+                drawHistogram(container, data);
+
+                // Generowanie tabeli z danymi
+                const table = document.createElement('table');
+                const thead = document.createElement('thead');
+                const tbody = document.createElement('tbody');
+
+                const headerRow = document.createElement('tr');
+                const thIndex = document.createElement('th');
+                thIndex.textContent = 'Indeks';
+                const thValue = document.createElement('th');
+                thValue.textContent = 'Wartość';
+
+                headerRow.appendChild(thIndex);
+                headerRow.appendChild(thValue);
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                data.forEach((value, index) => {
+                    const row = document.createElement('tr');
+                    const tdIndex = document.createElement('td');
+                    tdIndex.textContent = index + 1;
+                    const tdValue = document.createElement('td');
+                    tdValue.textContent = value.toFixed(4);
+
+                    row.appendChild(tdIndex);
+                    row.appendChild(tdValue);
+                    tbody.appendChild(row);
+                });
+
+                table.appendChild(tbody);
+                dataTables.appendChild(table);
+            });
+        }
+
+        function getParameters() {
+            const distribution = document.getElementById('distribution').value;
+            const parametersContainer = document.getElementById('parameters');
+
+            switch(distribution) {
+                case 'normal':
+                    return {
+                        mean: +document.getElementById('mean').value || 0,
+                        deviation: +document.getElementById('deviation').value || 1
+                    };
+                case 'exponential':
+                    return {
+                        rate: +document.getElementById('rate').value || 1
+                    };
+                default:
+                    console.error('Nieznany rodzaj rozkładu');
+            }
+        }
+
+        generateCharts(); // Generowanie wykresów na starcie
+    </script>
+</body>
+</html>
